@@ -1,12 +1,15 @@
 /*
  * Licensed Materials - Property of IBM
  * 
- * (c) Copyright IBM Corp. 2019.
+ * (c) Copyright IBM Corp. 2019,2020.
  */
 package dev.galasa.zos.internal;
 
+import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -14,6 +17,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.validation.constraints.NotNull;
 
@@ -21,10 +26,9 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.osgi.service.component.annotations.Component;
 
+import dev.galasa.ICredentials;
 import dev.galasa.ManagerException;
-import dev.galasa.ipnetwork.IIpHost;
-import dev.galasa.ipnetwork.IIpPort;
-import dev.galasa.ipnetwork.spi.IIpNetworkManagerSpi;
+import dev.galasa.ResultArchiveStoreContentType;
 import dev.galasa.framework.spi.AbstractManager;
 import dev.galasa.framework.spi.AnnotatedField;
 import dev.galasa.framework.spi.ConfigurationPropertyStoreException;
@@ -34,7 +38,13 @@ import dev.galasa.framework.spi.IDynamicStatusStoreService;
 import dev.galasa.framework.spi.IFramework;
 import dev.galasa.framework.spi.IManager;
 import dev.galasa.framework.spi.ResourceUnavailableException;
+import dev.galasa.framework.spi.creds.CredentialsException;
+import dev.galasa.framework.spi.creds.ICredentialsService;
+import dev.galasa.framework.spi.language.GalasaTest;
 import dev.galasa.framework.spi.utils.DssUtils;
+import dev.galasa.ipnetwork.IIpHost;
+import dev.galasa.ipnetwork.IIpPort;
+import dev.galasa.ipnetwork.spi.IIpNetworkManagerSpi;
 import dev.galasa.zos.IZosImage;
 import dev.galasa.zos.ZosImage;
 import dev.galasa.zos.ZosIpHost;
@@ -50,16 +60,39 @@ import dev.galasa.zos.internal.properties.DseImageIdForTag;
 import dev.galasa.zos.internal.properties.FileExtraBundle;
 import dev.galasa.zos.internal.properties.ImageIdForTag;
 import dev.galasa.zos.internal.properties.RunDatasetHLQ;
+import dev.galasa.zos.internal.properties.RunUNIXPathPrefix;
 import dev.galasa.zos.internal.properties.TSOCommandExtraBundle;
 import dev.galasa.zos.internal.properties.UNIXCommandExtraBundle;
 import dev.galasa.zos.internal.properties.ZosPropertiesSingleton;
 import dev.galasa.zos.spi.IZosManagerSpi;
 import dev.galasa.zos.spi.ZosImageDependencyField;
+import dev.galasa.zosbatch.IZosBatchJobname;
+import dev.galasa.zosbatch.ZosBatchException;
+import dev.galasa.zosbatch.ZosBatchManagerException;
+import dev.galasa.zosbatch.internal.ZosBatchJobOutputImpl;
+import dev.galasa.zosbatch.internal.ZosBatchJobnameImpl;
+import dev.galasa.zosbatch.internal.properties.JobWaitTimeout;
+import dev.galasa.zosbatch.internal.properties.BatchRestrictToImage;
+import dev.galasa.zosbatch.internal.properties.TruncateJCLRecords;
+import dev.galasa.zosbatch.internal.properties.UseSysaff;
+import dev.galasa.zosbatch.internal.properties.ZosBatchPropertiesSingleton;
+import dev.galasa.zosbatch.spi.IZosBatchJobOutputSpi;
+import dev.galasa.zosconsole.ZosConsoleManagerException;
+import dev.galasa.zosconsole.internal.properties.ConsoleRestrictToImage;
+import dev.galasa.zosconsole.internal.properties.ZosConsolePropertiesSingleton;
+import dev.galasa.zosfile.ZosFileManagerException;
+import dev.galasa.zosfile.internal.properties.DirectoryListMaxItems;
+import dev.galasa.zosfile.internal.properties.FileRestrictToImage;
+import dev.galasa.zosfile.internal.properties.UnixFilePermissions;
+import dev.galasa.zosfile.internal.properties.ZosFilePropertiesSingleton;
 
 @Component(service = { IManager.class })
 public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
     protected static final String NAMESPACE = "zos";
-
+    protected static final String ZOSBATCH_NAMESPACE = "zosbatch";
+    protected static final String ZOSFILE_NAMESPACE = "zosfile";
+    protected static final String ZOSCONSOLE_NAMESPACE = "zosconsole";
+    
     private static final Log logger = LogFactory.getLog(ZosManagerImpl.class);
 
     private static final String PRIMARY_TAG = "PRIMARY";
@@ -83,6 +116,9 @@ public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
     public List<String> extraBundles(@NotNull IFramework framework) throws ZosManagerException {
         try {
             ZosPropertiesSingleton.setCps(framework.getConfigurationPropertyService(NAMESPACE));
+            ZosBatchPropertiesSingleton.setCps(framework.getConfigurationPropertyService(ZOSBATCH_NAMESPACE));
+            ZosFilePropertiesSingleton.setCps(framework.getConfigurationPropertyService(ZOSFILE_NAMESPACE));
+            ZosConsolePropertiesSingleton.setCps(framework.getConfigurationPropertyService(ZOSCONSOLE_NAMESPACE));
         } catch (ConfigurationPropertyStoreException e) {
             throw new ZosManagerException("Unable to request framework services", e);
         }
@@ -103,14 +139,16 @@ public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
      */
     @Override
     public void initialise(@NotNull IFramework framework, @NotNull List<IManager> allManagers,
-            @NotNull List<IManager> activeManagers, @NotNull Class<?> testClass) throws ManagerException {
-        super.initialise(framework, allManagers, activeManagers, testClass);
+            @NotNull List<IManager> activeManagers, @NotNull GalasaTest galasaTest) throws ManagerException {
+        super.initialise(framework, allManagers, activeManagers, galasaTest);
 
-        //*** Check to see if any of our annotations are present in the test class
-        //*** If there is,  we need to activate
-        List<AnnotatedField> ourFields = findAnnotatedFields(ZosManagerField.class);
-        if (!ourFields.isEmpty()) {
-            youAreRequired(allManagers, activeManagers);
+        if(galasaTest.isJava()) {
+            //*** Check to see if any of our annotations are present in the test class
+            //*** If there is,  we need to activate
+            List<AnnotatedField> ourFields = findAnnotatedFields(ZosManagerField.class);
+            if (!ourFields.isEmpty()) {
+                youAreRequired(allManagers, activeManagers);
+            }
         }
 
         try {
@@ -401,6 +439,18 @@ public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
     }
 
     @Override
+    public @NotNull IZosImage provisionImageForTag(String tag) throws ZosManagerException {
+        Objects.nonNull(tag);
+        tag = tag.toUpperCase();
+        
+        IZosImage image = this.taggedImages.get(tag);
+        if (image == null) {
+            return generateZosImage(tag);
+        }
+        return image;
+    }
+
+    @Override
     public @NotNull IZosImage getImageForTag(String tag) throws ZosManagerException {
         Objects.nonNull(tag);
         tag = tag.toUpperCase();
@@ -437,7 +487,31 @@ public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
                 logger.info(LOG_ZOS_IMAGE + zosImage.getImageID() + " selected");                
             }
         }
+        if (zosImage == null) {
+            throw new ZosManagerException("zOS image \"" + imageId + "\" not defined");
+        }
         return zosImage;
+    }
+
+    @Override
+    public ICredentials getCredentials(String credentialsId, String imageId) throws ZosManagerException {
+    	ICredentials credentials;
+        try {
+            ICredentialsService credsService = getFramework().getCredentialsService();
+
+            credentials = credsService.getCredentials(credentialsId);
+            if (credentials == null) {
+            	credentials = credsService.getCredentials(credentialsId.toUpperCase());
+            }
+        } catch (CredentialsException e) {
+            throw new ZosManagerException("Unable to acquire the credentials for id " + credentialsId, e);
+        }
+
+        if (credentials == null) {
+            throw new ZosManagerException("zOS Credentials missing for image " + imageId + " id " + credentialsId);
+        }
+
+        return credentials;
     }
 
     @Override
@@ -456,6 +530,107 @@ public class ZosManagerImpl extends AbstractManager implements IZosManagerSpi {
 
     @Override
     public String getRunDatasetHLQ(IZosImage image) throws ZosManagerException {
+        Objects.nonNull(image);
         return RunDatasetHLQ.get(image);
     }
+
+    @Override
+    public String getRunUNIXPathPrefix(IZosImage image) throws ZosManagerException {
+        Objects.nonNull(image);
+        return RunUNIXPathPrefix.get(image);
+    }
+    
+    @Override
+    public boolean getZosBatchPropertyBatchRestrictToImage(String imageId) throws ZosBatchManagerException {
+		return BatchRestrictToImage.get(imageId);
+	}
+
+	@Override
+	public boolean getZosBatchPropertyUseSysaff(String imageId) throws ZosBatchManagerException {
+		return UseSysaff.get(imageId);
+	}
+
+	@Override
+	public int getZosBatchPropertyJobWaitTimeout(String imageId) throws ZosBatchManagerException {
+		return JobWaitTimeout.get(imageId);
+	}
+
+	@Override
+	public boolean getZosBatchPropertyTruncateJCLRecords(String imageId) throws ZosBatchManagerException {
+		return TruncateJCLRecords.get(imageId);
+	}
+
+	@Override
+	public IZosBatchJobname newZosBatchJobname(IZosImage image) throws ZosBatchException {
+		return new ZosBatchJobnameImpl(image);
+	}
+
+	@Override
+	public IZosBatchJobname newZosBatchJobname(String name) {
+		return new ZosBatchJobnameImpl(name);
+	}
+
+	@Override
+	public IZosBatchJobOutputSpi newZosBatchJobOutput(String jobname, String jobid) {
+		return new ZosBatchJobOutputImpl(jobname, jobid);
+	}
+
+	@Override
+	public int getZosFilePropertyDirectoryListMaxItems(String imageId) throws ZosFileManagerException {
+		return DirectoryListMaxItems.get(imageId);
+	}
+
+	@Override
+	public boolean getZosFilePropertyFileRestrictToImage(String imageId) throws ZosFileManagerException {
+		return FileRestrictToImage.get(imageId);
+	}
+
+	@Override
+	public String getZosFilePropertyUnixFilePermissions(String imageId) throws ZosFileManagerException {
+		return UnixFilePermissions.get(imageId);
+	}
+
+	@Override
+	public boolean getZosConsolePropertyConsoleRestrictToImage(String imageId) throws ZosConsoleManagerException {
+		return ConsoleRestrictToImage.get(imageId);
+	}
+
+	@Override
+	public String buildUniquePathName(Path artifactPath, String name) {
+    	int uniqueId = 1;
+        while (Files.exists(artifactPath.resolve(name))) {
+            Pattern pattern = Pattern.compile("[_][\\d]+$");
+            Matcher matcher = pattern.matcher(name);
+            if (matcher.find()) {
+                name = matcher.replaceFirst("_" + Integer.toString(uniqueId));
+            } else {
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append(name);
+                stringBuilder.append("_");
+                stringBuilder.append(uniqueId);
+                name = stringBuilder.toString();
+            }
+        	uniqueId++;
+        }
+		return name;
+	}
+
+	@Override
+	public void storeArtifact(Path artifactPath, String content, ResultArchiveStoreContentType type) throws ZosManagerException {
+		try {
+			Files.createFile(artifactPath, type);
+			Files.write(artifactPath, content.getBytes());
+		} catch (IOException e) {
+			throw new ZosManagerException("Unable to store artifact", e);
+		}
+	}
+
+	@Override
+	public void createArtifactDirectory(Path artifactPath) throws ZosManagerException {
+		try {
+			Files.createDirectories(artifactPath);
+		} catch (IOException e) {
+			throw new ZosManagerException("Unable to create artifact directory", e);
+		}
+	}
 }

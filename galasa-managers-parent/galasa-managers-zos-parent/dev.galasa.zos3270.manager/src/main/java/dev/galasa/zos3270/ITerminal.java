@@ -16,21 +16,54 @@ public interface ITerminal {
     void connect() throws NetworkException;
 
     void disconnect() throws TerminalInterruptedException;
+    
+    public boolean isSwitchedSSL();
+
+    public void setDoStartTls(boolean doStartTls);
 
     ITerminal waitForKeyboard() throws TimeoutException, KeyboardLockedException, TerminalInterruptedException;
+
+    ITerminal wfk() throws TimeoutException, KeyboardLockedException, TerminalInterruptedException;
 
     ITerminal positionCursorToFieldContaining(@NotNull String searchText)
             throws TextNotFoundException, KeyboardLockedException;
 
-    ITerminal waitForTextInField(String string) throws TerminalInterruptedException, Zos3270Exception;
+    ITerminal waitForTextInField(String string) throws TerminalInterruptedException, TextNotFoundException, ErrorTextFoundException, Zos3270Exception;
+
+    /**
+     * @param ok - An array of text strings to find on the screen
+     * @param error - An array of text strings deemed to be errors
+     * @return the index of the ok string that was found
+     * @throws TerminalInterruptedException - If the wait was interrupted for some reason
+     * @throws TextNotFoundException - None of the ok or error strings were found before the timeout
+     * @throws ErrorTextFoundException - One of the error strings were found, index of which is in the exception
+     * @throws Zos3270Exception - general zos 3270 error
+     */
+    ITerminal waitForTextInField(String[] ok, String[] error) throws TerminalInterruptedException, TextNotFoundException, ErrorTextFoundException, Zos3270Exception;
+
+    /**
+     * @param ok - An array of text strings to find on the screen
+     * @param error - An array of text strings deemed to be errors
+     * @param timeoutInMilliseconds - timeout
+     * @return the index of the ok string that was found
+     * @throws TerminalInterruptedException - If the wait was interrupted for some reason
+     * @throws TextNotFoundException - None of the ok or error strings were found before the timeout
+     * @throws ErrorTextFoundException - One of the error strings were found
+     * @throws Zos3270Exception - general zos 3270 error
+     */
+    ITerminal waitForTextInField(String[] ok, String[] error, long timeoutInMilliseconds) throws TerminalInterruptedException, TextNotFoundException, ErrorTextFoundException, Zos3270Exception;
 
     ITerminal verifyTextInField(String string) throws TextNotFoundException;
 
     boolean isTextInField(String string);
 
+    boolean isTextInField(String string, long timeoutInMilliseconds) throws TerminalInterruptedException;
+
     ITerminal type(String typeText) throws FieldNotFoundException, KeyboardLockedException;
     
     ITerminal eraseEof() throws KeyboardLockedException, FieldNotFoundException;
+
+    ITerminal eraseInput() throws KeyboardLockedException, FieldNotFoundException;
 
     ITerminal tab() throws FieldNotFoundException, KeyboardLockedException;
     
@@ -43,6 +76,8 @@ public interface ITerminal {
     ITerminal cursorLeft() throws KeyboardLockedException, FieldNotFoundException;
     
     ITerminal cursorRight() throws KeyboardLockedException, FieldNotFoundException;
+    
+    ITerminal backSpace() throws KeyboardLockedException, FieldNotFoundException;
 
     ITerminal home() throws KeyboardLockedException, FieldNotFoundException;
 
@@ -123,6 +158,7 @@ public interface ITerminal {
     
     String getId();
     
-    void setDisplayDatastream(boolean inbound, boolean outbound);
+    void registerDatastreamListener(IDatastreamListener listener);
+    void unregisterDatastreamListener(IDatastreamListener listener);
 
 }

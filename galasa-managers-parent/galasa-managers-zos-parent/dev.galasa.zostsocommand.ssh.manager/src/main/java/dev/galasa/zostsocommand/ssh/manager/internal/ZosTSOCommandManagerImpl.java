@@ -22,16 +22,18 @@ import dev.galasa.framework.spi.GenerateAnnotatedField;
 import dev.galasa.framework.spi.IFramework;
 import dev.galasa.framework.spi.IManager;
 import dev.galasa.framework.spi.ResourceUnavailableException;
+import dev.galasa.framework.spi.language.GalasaTest;
 import dev.galasa.zos.IZosImage;
 import dev.galasa.zos.ZosManagerException;
 import dev.galasa.zos.spi.IZosManagerSpi;
-import dev.galasa.zostsocommand.ssh.manager.internal.properties.ZosTSOCommandSshPropertiesSingleton;
 import dev.galasa.zostsocommand.IZosTSOCommand;
 import dev.galasa.zostsocommand.ZosTSOCommand;
 import dev.galasa.zostsocommand.ZosTSOCommandField;
 import dev.galasa.zostsocommand.ZosTSOCommandManagerException;
 import dev.galasa.zostsocommand.spi.IZosTSOCommandSpi;
-import dev.galasa.zosunixcommand.ZosUNIXCommandManagerException;
+import dev.galasa.zostsocommand.ssh.manager.internal.properties.TsocmdPath;
+import dev.galasa.zostsocommand.ssh.manager.internal.properties.ZosTSOCommandSshPropertiesSingleton;
+import dev.galasa.zosunixcommand.IZosUNIXCommand;
 import dev.galasa.zosunixcommand.spi.IZosUNIXCommandSpi;
 
 /**
@@ -42,14 +44,14 @@ import dev.galasa.zosunixcommand.spi.IZosUNIXCommandSpi;
 public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSOCommandSpi {
     protected static final String NAMESPACE = "zostsocommand";
 
-    protected static IZosManagerSpi zosManager;
-    public static void setZosManager(IZosManagerSpi zosManager) {
-        ZosTSOCommandManagerImpl.zosManager = zosManager;
+    protected IZosManagerSpi zosManager;
+    public void setZosManager(IZosManagerSpi zosManager) {
+        this.zosManager = zosManager;
     }
 
-    protected static IZosUNIXCommandSpi zosUnixCommandManager;
-    public static void setZosUnixCommandManager(IZosUNIXCommandSpi zosUnixCommandManager) {
-        ZosTSOCommandManagerImpl.zosUnixCommandManager = zosUnixCommandManager;
+    protected IZosUNIXCommandSpi zosUnixCommandManager;
+    public void setZosUnixCommandManager(IZosUNIXCommandSpi zosUnixCommandManager) {
+        this.zosUnixCommandManager = zosUnixCommandManager;
     }
 
     private final HashMap<String, ZosTSOCommandImpl> taggedZosTSOCommands = new HashMap<>();
@@ -60,19 +62,21 @@ public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSO
      */
     @Override
     public void initialise(@NotNull IFramework framework, @NotNull List<IManager> allManagers,
-            @NotNull List<IManager> activeManagers, @NotNull Class<?> testClass) throws ManagerException {
-        super.initialise(framework, allManagers, activeManagers, testClass);
+            @NotNull List<IManager> activeManagers, @NotNull GalasaTest galasaTest) throws ManagerException {
+        super.initialise(framework, allManagers, activeManagers, galasaTest);
         try {
             ZosTSOCommandSshPropertiesSingleton.setCps(framework.getConfigurationPropertyService(NAMESPACE));
         } catch (ConfigurationPropertyStoreException e) {
             throw new ZosTSOCommandManagerException("Unable to request framework services", e);
         }
 
-        //*** Check to see if any of our annotations are present in the test class
-        //*** If there is,  we need to activate
-        List<AnnotatedField> ourFields = findAnnotatedFields(ZosTSOCommandField.class);
-        if (!ourFields.isEmpty()) {
-            youAreRequired(allManagers, activeManagers);
+        if(galasaTest.isJava()) {
+            //*** Check to see if any of our annotations are present in the test class
+            //*** If there is,  we need to activate
+            List<AnnotatedField> ourFields = findAnnotatedFields(ZosTSOCommandField.class);
+            if (!ourFields.isEmpty()) {
+                youAreRequired(allManagers, activeManagers);
+            }
         }
     }
     
@@ -103,7 +107,7 @@ public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSO
         }
         setZosUnixCommandManager(addDependentManager(allManagers, activeManagers, IZosUNIXCommandSpi.class));
         if (zosUnixCommandManager == null) {
-            throw new ZosUNIXCommandManagerException("The zOS UNIX Command Manager is not available");
+            throw new ZosTSOCommandManagerException("The zOS UNIX Command Manager is not available");
         }
     }
 
@@ -122,7 +126,7 @@ public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSO
         ZosTSOCommand annotationZosTSOCommand = field.getAnnotation(ZosTSOCommand.class);
 
         //*** Default the tag to primary
-        String tag = defaultString(annotationZosTSOCommand.imageTag(), "primary");
+        String tag = defaultString(annotationZosTSOCommand.imageTag(), "PRIMARY").toUpperCase();
 
         //*** Have we already generated this tag
         if (this.taggedZosTSOCommands.containsKey(tag)) {
@@ -130,12 +134,11 @@ public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSO
         }
 
         IZosImage image = zosManager.getImageForTag(tag);
-        IZosTSOCommand zosTSOCommand = new ZosTSOCommandImpl(image);
+        IZosTSOCommand zosTSOCommand = new ZosTSOCommandImpl(getZosUNIXCommand(image), getTsocmdPath(image));
         this.taggedZosTSOCommands.put(tag, (ZosTSOCommandImpl) zosTSOCommand);
         
         return zosTSOCommand;
     }
-
 
     @Override
     public @NotNull IZosTSOCommand getZosTSOCommand(IZosImage image) throws ZosTSOCommandManagerException {
@@ -143,9 +146,17 @@ public class ZosTSOCommandManagerImpl extends AbstractManager implements IZosTSO
             return this.zosTSOCommands.get(image);
         }
 
-        ZosTSOCommandImpl zosTSO = new ZosTSOCommandImpl(image);
+        ZosTSOCommandImpl zosTSO = new ZosTSOCommandImpl(getZosUNIXCommand(image), getTsocmdPath(image));
         this.zosTSOCommands.put(image, zosTSO);
         
         return zosTSO;
     }
+    
+	protected IZosUNIXCommand getZosUNIXCommand(IZosImage image) {
+		return this.zosUnixCommandManager.getZosUNIXCommand(image);
+	}
+
+	protected String getTsocmdPath(IZosImage image) throws ZosTSOCommandManagerException {
+		return TsocmdPath.get(image.getImageID());
+	}
 }

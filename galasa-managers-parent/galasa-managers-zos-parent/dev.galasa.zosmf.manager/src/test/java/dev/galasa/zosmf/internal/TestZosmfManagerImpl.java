@@ -14,12 +14,11 @@ import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
+import org.mockito.internal.util.reflection.FieldSetter;
 import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
@@ -27,9 +26,12 @@ import org.powermock.reflect.Whitebox;
 
 import dev.galasa.ManagerException;
 import dev.galasa.framework.spi.ConfigurationPropertyStoreException;
+import dev.galasa.framework.spi.IConfigurationPropertyStoreService;
 import dev.galasa.framework.spi.IFramework;
 import dev.galasa.framework.spi.IManager;
 import dev.galasa.framework.spi.IResultArchiveStore;
+import dev.galasa.framework.spi.creds.CredentialsException;
+import dev.galasa.framework.spi.language.GalasaTest;
 import dev.galasa.http.IHttpClient;
 import dev.galasa.http.internal.HttpManagerImpl;
 import dev.galasa.zos.IZosImage;
@@ -39,16 +41,17 @@ import dev.galasa.zosmf.IZosmf;
 import dev.galasa.zosmf.ZosmfException;
 import dev.galasa.zosmf.ZosmfManagerException;
 import dev.galasa.zosmf.internal.properties.Https;
+import dev.galasa.zosmf.internal.properties.ImageServers;
 import dev.galasa.zosmf.internal.properties.RequestRetry;
-import dev.galasa.zosmf.internal.properties.ServerHostname;
-import dev.galasa.zosmf.internal.properties.ServerImages;
+import dev.galasa.zosmf.internal.properties.ServerImage;
 import dev.galasa.zosmf.internal.properties.ServerPort;
+import dev.galasa.zosmf.internal.properties.SysplexServers;
 import dev.galasa.zosmf.internal.properties.ZosmfPropertiesSingleton;
 
 @RunWith(PowerMockRunner.class)
-@PrepareForTest({ServerImages.class, ServerHostname.class, ServerPort.class, Https.class, RequestRetry.class})
+@PrepareForTest({SysplexServers.class, ServerPort.class, ImageServers.class, Https.class, RequestRetry.class})
 public class TestZosmfManagerImpl {
-    
+
     private ZosmfManagerImpl zosmfManager;
     
     private ZosmfManagerImpl zosmfManagerSpy;
@@ -58,7 +61,10 @@ public class TestZosmfManagerImpl {
     private List<IManager> allManagers;
     
     private List<IManager> activeManagers;
-    
+
+    @Mock
+    private IConfigurationPropertyStoreService cps;
+
     @Mock
     private IFramework frameworkMock;
     
@@ -83,31 +89,30 @@ public class TestZosmfManagerImpl {
     @Mock
     private ZosmfImpl zosmfMock;
 
-    @Rule
-    public ExpectedException exceptionRule = ExpectedException.none();
+    private static final String SERVER_ID = "SERVER1";
 
     private static final String IMAGE = "image";
 
     private static final String IMAGE_TAG = "tag";
 
-    private static final String CLUSTER = "cluster";
-
-    private static final String HOSTNAME = "hostname";
-
-    private static final String PORT = "999";
+    private static final int PORT = 999;
 
     @Before
     public void setup() throws Exception {
-        ZosmfManagerImpl.setZosManager(zosManagerMock);
-        ZosmfManagerImpl.setHttpManager(httpManagerMock);
         zosmfZosmfPropertiesSingleton = new ZosmfPropertiesSingleton();
         zosmfZosmfPropertiesSingleton.activate();
+        ZosmfPropertiesSingleton.setCps(cps);
         
         Mockito.when(zosImageMock.getImageID()).thenReturn("image");
         
+        Mockito.when(zosManagerMock.getUnmanagedImage(IMAGE)).thenReturn(zosImageMock);
+        
         zosmfManager = new ZosmfManagerImpl();
+        FieldSetter.setField(zosmfManager, ZosmfManagerImpl.class.getDeclaredField("zosManager"), zosManagerMock);
+        FieldSetter.setField(zosmfManager, ZosmfManagerImpl.class.getDeclaredField("httpManager"), httpManagerMock);
         zosmfManagerSpy = Mockito.spy(zosmfManager);
         Mockito.when(zosmfManagerSpy.getFramework()).thenReturn(frameworkMock);
+        Mockito.when(zosmfManagerSpy.getZosManager()).thenReturn(zosManagerMock);
         Mockito.when(frameworkMock.getResultArchiveStore()).thenReturn(resultArchiveStoreMock);
         Mockito.when(resultArchiveStoreMock.getStoredArtifactsRoot()).thenReturn(new File("/").toPath());
         
@@ -118,23 +123,25 @@ public class TestZosmfManagerImpl {
     @Test
     public void testInitialise() throws ManagerException {
         allManagers.add(managerMock);
-        zosmfManager.initialise(frameworkMock, allManagers, activeManagers, TestZosmfManagerImpl.class);
+        zosmfManager.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(TestZosmfManagerImpl.class));
         Assert.assertEquals("Error in initialise() method", zosmfManagerSpy.getFramework(), frameworkMock);
     }
     
     @Test
     public void testInitialise1() throws ManagerException {
         Mockito.doNothing().when(zosmfManagerSpy).youAreRequired(Mockito.any(), Mockito.any());
-        zosmfManagerSpy.initialise(frameworkMock, allManagers, activeManagers, DummyTestClass.class);
+        zosmfManagerSpy.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(DummyTestClass.class));
         Assert.assertEquals("Error in initialise() method", zosmfManagerSpy.getFramework(), frameworkMock);
     }
 
     @Test
     public void testInitialiseException() throws ConfigurationPropertyStoreException, ManagerException {
         Mockito.when(frameworkMock.getConfigurationPropertyService(Mockito.any())).thenThrow(new ConfigurationPropertyStoreException("exception"));
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("Unable to request framework services");
-        zosmfManagerSpy.initialise(frameworkMock, allManagers, activeManagers, DummyTestClass.class);
+        String expectedMessage = "Unable to request framework services";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(DummyTestClass.class));
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
@@ -158,17 +165,21 @@ public class TestZosmfManagerImpl {
     
     @Test
     public void testYouAreRequiredException1() throws ManagerException {
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("The zOS Manager is not available");
-        zosmfManagerSpy.youAreRequired(allManagers, activeManagers);
+        String expectedMessage = "The zOS Manager is not available";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.youAreRequired(allManagers, activeManagers);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testYouAreRequiredException2() throws ManagerException {
         allManagers.add(zosManagerMock);
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("The HTTP Manager is not available");
-        zosmfManagerSpy.youAreRequired(allManagers, activeManagers);
+        String expectedMessage = "The HTTP Manager is not available";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.youAreRequired(allManagers, activeManagers);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
@@ -193,20 +204,36 @@ public class TestZosmfManagerImpl {
         
         HashMap<String, ZosmfImpl> taggedZosmfs = new HashMap<>();
         ZosmfImpl zosmfImpl = Mockito.mock(ZosmfImpl.class);
-        taggedZosmfs.put(IMAGE_TAG, zosmfImpl);
-        Whitebox.setInternalState(zosmfManagerSpy, "taggedZosmfs", taggedZosmfs);
+        taggedZosmfs.put(IMAGE_TAG.toUpperCase(), zosmfImpl);
+        FieldSetter.setField(zosmfManager, ZosmfManagerImpl.class.getDeclaredField("taggedZosmfs"), taggedZosmfs);
         
-        zosmfImplObject = zosmfManagerSpy.generateZosmf(DummyTestClass.class.getDeclaredField("zosmf"), annotations);
+        zosmfImplObject = zosmfManager.generateZosmf(DummyTestClass.class.getDeclaredField("zosmf"), annotations);
         Assert.assertEquals("generateZosmf() should retrn the supplied instance of ZosBatchImpl", zosmfImpl, zosmfImplObject);
+        
+        taggedZosmfs = new HashMap<>();
+        Whitebox.setInternalState(zosmfManagerSpy, "taggedZosmfs", taggedZosmfs);
+		Mockito.doReturn(new HashMap<String, IZosmf>()).when(zosmfManagerSpy).getZosmfs(Mockito.any());
+    	String expectedMessage = "Unable to provision zOS/MF, no zOS/MF server defined for image tag '" + IMAGE_TAG.toUpperCase() + "'";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.generateZosmf(DummyTestClass.class.getDeclaredField("zosmf"), annotations);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
+
+    	Mockito.when(zosManagerMock.getImageForTag(Mockito.any())).thenThrow(new ZosManagerException());
+        expectedMessage = "Unable to locate z/OS image for tag '" + IMAGE_TAG.toUpperCase() + "'";
+        expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.generateZosmf(DummyTestClass.class.getDeclaredField("zosmf"), annotations);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testNewZosmf() throws ZosmfManagerException {
         setupZosmfImplInitialize();
         
-        IZosmf zosmf = zosmfManagerSpy.newZosmf(zosImageMock);
+        IZosmf zosmf = zosmfManager.newZosmf(SERVER_ID);
         Assert.assertNotNull("getZosmf() should not be null", zosmf);
-        IZosmf zosmf2 = zosmfManagerSpy.newZosmf(zosImageMock);
+        IZosmf zosmf2 = zosmfManager.newZosmf(SERVER_ID);
         Assert.assertEquals("getZosmf() should return the existing IZosmf instance", zosmf, zosmf2);
     }
     
@@ -216,56 +243,69 @@ public class TestZosmfManagerImpl {
         
         Mockito.doReturn(zosmfMock).when(zosmfManagerSpy).newZosmf(Mockito.any());
         Mockito.when(zosManagerMock.getImage(Mockito.anyString())).thenReturn(zosImageMock);
-        
-        Assert.assertTrue("getZosmfs() should return the mocked ZosmfImpl", zosmfManagerSpy.getZosmfs(CLUSTER).containsValue(zosmfMock));
-        
-        Assert.assertTrue("getZosmfs() should return the mocked ZosmfImpl", zosmfManagerSpy.getZosmfs(CLUSTER).containsValue(zosmfMock));
+        Assert.assertTrue("getZosmfs() should return the mocked ZosmfImpl", zosmfManagerSpy.getZosmfs(zosImageMock).containsValue(zosmfMock));
 
-        Mockito.when(zosManagerMock.getImage(Mockito.anyString())).thenThrow(new ZosManagerException());
-        Whitebox.setInternalState(zosmfManagerSpy, "zosmfs", new HashMap<>());
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("Unable to get zOSMF servers for cluster " + CLUSTER);
+        Mockito.when(ImageServers.get(Mockito.any())).thenReturn(Arrays.asList());
+        Assert.assertTrue("getZosmfs() should return the mocked ZosmfImpl", zosmfManagerSpy.getZosmfs(zosImageMock).containsValue(zosmfMock));
         
-        zosmfManagerSpy.getZosmfs(CLUSTER);
+        Mockito.when(SysplexServers.get(Mockito.any())).thenReturn(Arrays.asList());
+        Assert.assertTrue("getZosmfs() should return the mocked ZosmfImpl", zosmfManagerSpy.getZosmfs(zosImageMock).containsValue(zosmfMock));
     }
     
     @Test
-    public void testNewZosmfRestApiProcessor() throws ZosManagerException {
+    public void testGetZosmfsException() throws ZosManagerException, CredentialsException {
+        setupZosmfImplInitialize();;
+
+        Mockito.when(ImageServers.get(Mockito.any())).thenThrow(new ZosmfException());
+        String expectedMessage = "Unable to get zOSMF servers for image \"" + IMAGE + "\"";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.getZosmfs(zosImageMock);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
+    }
+        
+    @Test
+    public void testNewZosmfRestApiProcessor() throws Exception {
         setupZosmfImplInitialize();
         
         HashMap<String, IZosmf> zosmfs = new HashMap<>();
         zosmfs.put(IMAGE, zosmfMock);
-        Mockito.doReturn(zosmfs).when(zosmfManagerSpy).getZosmfs(CLUSTER);
+        Mockito.doReturn(zosmfs).when(zosmfManagerSpy).getZosmfs(zosImageMock);
+        Mockito.when(zosmfMock.getImage()).thenReturn(zosImageMock);
         
         Assert.assertEquals("newZosmfRestApiProcessor() should return the mocked ZosmfImpl", zosmfMock, ((ZosmfRestApiProcessor) zosmfManagerSpy.newZosmfRestApiProcessor(zosImageMock, false)).getCurrentZosmfServer());
         
         Whitebox.setInternalState(zosmfManagerSpy, "zosmfs", zosmfs);
         Assert.assertEquals("newZosmfRestApiProcessor() should return the mocked ZosmfImpl", zosmfMock, ((ZosmfRestApiProcessor) zosmfManagerSpy.newZosmfRestApiProcessor(zosImageMock, true)).getCurrentZosmfServer());
         
-        zosmfs.clear();
-        Whitebox.setInternalState(zosmfManagerSpy, "zosmfs", zosmfs);
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("No zOSMF sever configured on " + IMAGE);
-        zosmfManagerSpy.newZosmfRestApiProcessor(zosImageMock, true);
+        IZosImage zosImageMock1 = Mockito.mock(IZosImage.class);
+		Mockito.when(zosImageMock1 .getImageID()).thenReturn(IMAGE + "1");
+        String expectedMessage = "No zOSMF server configured on " + IMAGE + "1";
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	zosmfManagerSpy.newZosmfRestApiProcessor(zosImageMock1, true);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
+        
     }
 
     private void setupZosmfImplInitialize() throws ZosmfManagerException {        
         Mockito.when(zosImageMock.getImageID()).thenReturn(IMAGE);
-        Mockito.when(zosImageMock.getClusterID()).thenReturn(CLUSTER);
         
-        PowerMockito.mockStatic(ServerImages.class);
-        Mockito.when(ServerImages.get(Mockito.any())).thenReturn(Arrays.asList(IMAGE));
-        
-        PowerMockito.mockStatic(ServerHostname.class);
-        Mockito.when(ServerHostname.get(Mockito.any())).thenReturn(HOSTNAME);
+        PowerMockito.mockStatic(SysplexServers.class);
+        Mockito.when(SysplexServers.get(Mockito.any())).thenReturn(Arrays.asList(IMAGE));
         
         PowerMockito.mockStatic(ServerPort.class);
         Mockito.when(ServerPort.get(Mockito.any())).thenReturn(PORT);
         
+        PowerMockito.mockStatic(ServerPort.class);
+        Mockito.when(ServerImage.get(SERVER_ID)).thenReturn(IMAGE);
+        
+        PowerMockito.mockStatic(ImageServers.class);
+        Mockito.when(ImageServers.get(Mockito.any())).thenReturn(Arrays.asList(IMAGE));
+        
         PowerMockito.mockStatic(Https.class);
         Mockito.when(Https.get(Mockito.any())).thenReturn(true);
         
-        Whitebox.setInternalState(ZosmfManagerImpl.class, "httpManager", httpManagerMock);
         Mockito.when(httpManagerMock.newHttpClient()).thenReturn(httpClientMock);
        
         PowerMockito.mockStatic(RequestRetry.class);

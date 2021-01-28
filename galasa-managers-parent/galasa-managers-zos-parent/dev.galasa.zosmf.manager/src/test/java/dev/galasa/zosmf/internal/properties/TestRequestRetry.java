@@ -6,13 +6,11 @@
 package dev.galasa.zosmf.internal.properties;
 
 import org.junit.Assert;
-import org.junit.Rule;
+import org.junit.Before;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
@@ -25,15 +23,14 @@ import dev.galasa.zosmf.ZosmfManagerException;
 @PrepareForTest({ZosmfPropertiesSingleton.class, CpsProperties.class})
 public class TestRequestRetry {
     
+    private ZosmfPropertiesSingleton properties;
+    
     @Mock
     private IConfigurationPropertyStoreService configurationPropertyStoreServiceMock;
     
-    @Rule
-    public ExpectedException exceptionRule = ExpectedException.none();
+    private static final String SERVERID = "MFSYSA";
     
-    private static final String IMAGE_ID = "IMAGE";
-    
-    private static final int DEFAULT_REQUEST_RETRY = 3;
+    private static final String DEFAULT_REQUEST_RETRY = "3";
     
     @Test
     public void testConstructor() {
@@ -41,49 +38,32 @@ public class TestRequestRetry {
         Assert.assertNotNull("Object was not created", requestRetry);
     }
     
-    @Test
-    public void testNull() throws Exception {
-        Assert.assertEquals("Unexpected value returned from RequestRetry.get()", DEFAULT_REQUEST_RETRY, getProperty(null));
+    @Before
+    public void setup() throws ConfigurationPropertyStoreException, ZosmfManagerException {
+        Mockito.when(configurationPropertyStoreServiceMock.getProperty("command", "request.retry", SERVERID)).thenReturn(DEFAULT_REQUEST_RETRY);
+        properties = new ZosmfPropertiesSingleton();
+        properties.activate();
+        ZosmfPropertiesSingleton.setCps(configurationPropertyStoreServiceMock);       
     }
     
     @Test
     public void testValid() throws Exception {
-        Assert.assertEquals("Unexpected value returned from RequestRetry.get()", 0, getProperty("0"));
-        Assert.assertEquals("Unexpected value returned from RequestRetry.get()", Integer.MIN_VALUE, getProperty(String.valueOf(Integer.MIN_VALUE)));
-        Assert.assertEquals("Unexpected value returned from RequestRetry.get()", Integer.MAX_VALUE, getProperty(String.valueOf(Integer.MAX_VALUE)));
+        int retry = RequestRetry.get(SERVERID);
+        
+        Assert.assertEquals("Unexpected value returned from RequestRetry.get()", Integer.parseInt(DEFAULT_REQUEST_RETRY), retry);
     }
     
     @Test
     public void testInvalid() throws Exception {
-        exceptionRule.expect(NumberFormatException.class);
-        exceptionRule.expectMessage("For input string: \"XXX\"");
+        String invalidValue = "BOB";
+        String expectedMessage = "Invalid value given for zosmf.*.request.retry '" + invalidValue + "'";
+        
+        Mockito.when(configurationPropertyStoreServiceMock.getProperty("command", "request.retry", SERVERID)).thenReturn(invalidValue);
 
-        getProperty("XXX");
+        ZosmfManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosmfManagerException.class, ()->{
+        	RequestRetry.get(SERVERID);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
-    @Test
-    public void testException() throws Exception {
-        exceptionRule.expect(ZosmfManagerException.class);
-        exceptionRule.expectMessage("Problem asking the CPS for the zOSMF request retry property for zOS image " + IMAGE_ID);
-        
-        getProperty("ANY", true);
-    }
-
-    private int getProperty(String value) throws Exception {
-        return getProperty(value, false);
-    }
-    
-    private int getProperty(String value, boolean exception) throws Exception {
-        PowerMockito.spy(ZosmfPropertiesSingleton.class);
-        PowerMockito.doReturn(configurationPropertyStoreServiceMock).when(ZosmfPropertiesSingleton.class, "cps");
-        PowerMockito.spy(CpsProperties.class);
-        
-        if (!exception) {
-            PowerMockito.doReturn(value).when(CpsProperties.class, "getStringNulled", Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString());            
-        } else {
-            PowerMockito.doThrow(new ConfigurationPropertyStoreException()).when(CpsProperties.class, "getStringNulled", Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
-        }
-        
-        return RequestRetry.get(IMAGE_ID);
-    }
 }

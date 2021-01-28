@@ -5,13 +5,18 @@
  */
 package dev.galasa.zos3270.spi;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
 import javax.validation.constraints.NotNull;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import dev.galasa.zos3270.AttentionIdentification;
+import dev.galasa.zos3270.ErrorTextFoundException;
 import dev.galasa.zos3270.FieldNotFoundException;
+import dev.galasa.zos3270.IDatastreamListener;
 import dev.galasa.zos3270.ITerminal;
 import dev.galasa.zos3270.KeyboardLockedException;
 import dev.galasa.zos3270.TerminalInterruptedException;
@@ -36,12 +41,16 @@ public class Terminal implements ITerminal {
     private boolean       autoReconnect   = false;
 
     public Terminal(String id, String host, int port) throws TerminalInterruptedException {
-        this(id, host, port, false);
+        this(id, host, port, false, 80, 24, 0, 0);
     }
 
     public Terminal(String id, String host, int port, boolean ssl) throws TerminalInterruptedException {
-        network = new Network(host, port, ssl);
-        screen = new Screen(80, 24, this.network);
+        this(id, host, port, ssl, 80, 24, 0, 0);
+    }
+
+    public Terminal(String id, String host, int port, boolean ssl, int primaryColumns, int primaryRows, int alternateColumns, int alternateRows) throws TerminalInterruptedException {
+        network = new Network(host, port, ssl, id);
+        screen = new Screen(primaryColumns, primaryRows, alternateColumns, alternateRows, this.network);
         this.id = id;
     }
     
@@ -53,8 +62,32 @@ public class Terminal implements ITerminal {
     public synchronized void connect() throws NetworkException {
         connected = network.connectClient();
         networkThread = new NetworkThread(this, screen, network, network.getInputStream());
-        logger.info("starting a new network thread");
         networkThread.start();
+        
+        Instant expire = Instant.now().plus(60, ChronoUnit.SECONDS);
+        boolean started = false;
+        while(Instant.now().isBefore(expire)) {
+            NetworkThread nThread = this.networkThread;
+            if (nThread == null) {
+                this.network.close();
+                throw new NetworkException("The TN3270 network thread failed to start correctly");
+            }
+            if (nThread.isStarted()) {
+                started = true;
+                break;
+            }
+            
+            try {
+                Thread.sleep(50);
+            } catch(InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new NetworkException("Wait for TN3270 startup was interrupted", e);
+            }
+        }
+        
+        if (!started) {
+            throw new NetworkException("TN3270 server did not start session in time");
+        }
     }
 
     @Override
@@ -115,6 +148,11 @@ public class Terminal implements ITerminal {
         return this;
     }
 
+    @Override
+    public ITerminal wfk() throws TimeoutException, KeyboardLockedException, TerminalInterruptedException {
+        return waitForKeyboard();
+    }
+
     public Screen getScreen() {
         return this.screen;
     }
@@ -136,10 +174,30 @@ public class Terminal implements ITerminal {
     public boolean isTextInField(String text) {
         return screen.isTextInField(text);
     }
+    
+    @Override
+    public boolean isTextInField(String string, long timeoutInMilliseconds) throws TerminalInterruptedException {
+        throw new UnsupportedOperationException("PLACEHOLDER"); //TODO
+//        return false;
+    }
+
 
     @Override
-    public Terminal waitForTextInField(String text) throws TerminalInterruptedException, Zos3270Exception {
+    public ITerminal waitForTextInField(String text) throws TerminalInterruptedException, TextNotFoundException, Zos3270Exception {
         screen.waitForTextInField(text, defaultWaitTime);
+        return this;
+    }
+
+    @Override
+    public ITerminal waitForTextInField(String[] ok, String[] error)
+            throws TerminalInterruptedException, TextNotFoundException, ErrorTextFoundException, Zos3270Exception {
+        return waitForTextInField(ok, error, this.defaultWaitTime);
+    }
+
+    @Override
+    public ITerminal waitForTextInField(String[] ok, String[] error, long timeoutInMilliseconds)
+            throws TerminalInterruptedException, TextNotFoundException, ErrorTextFoundException, Zos3270Exception {
+        screen.waitForTextInField(ok, error, timeoutInMilliseconds);
         return this;
     }
 
@@ -152,6 +210,12 @@ public class Terminal implements ITerminal {
     @Override
     public ITerminal eraseEof() throws KeyboardLockedException, FieldNotFoundException {
         screen.eraseEof();
+        return this;
+    }
+
+    @Override
+    public ITerminal eraseInput() throws KeyboardLockedException, FieldNotFoundException {
+        screen.eraseInput();
         return this;
     }
 
@@ -200,6 +264,12 @@ public class Terminal implements ITerminal {
     @Override
     public ITerminal newLine() throws KeyboardLockedException, FieldNotFoundException {
         screen.newLine();
+        return this;
+    }
+
+    @Override
+    public ITerminal backSpace() throws KeyboardLockedException, FieldNotFoundException {
+        screen.backSpace();
         return this;
     }
 
@@ -431,9 +501,24 @@ public class Terminal implements ITerminal {
     }
 
     @Override
-    public void setDisplayDatastream(boolean inbound, boolean outbound) {
-        NetworkThread.setDisplayInboundDatastream(inbound);
-        Screen.setDisplayOutboundDatastream(outbound);
+    public void registerDatastreamListener(IDatastreamListener listener) {
+        this.screen.registerDatastreamListener(listener);
     }
+
+    @Override
+    public void unregisterDatastreamListener(IDatastreamListener listener) {
+        this.screen.unregisterDatastreamListener(listener);
+    }
+
+    @Override
+    public boolean isSwitchedSSL() {
+        return this.network.isSwitchedSSL();
+    }
+    
+    @Override
+    public void setDoStartTls(boolean doStartTls) {
+        this.network.setDoStartTls(doStartTls);
+    }
+
 
 }

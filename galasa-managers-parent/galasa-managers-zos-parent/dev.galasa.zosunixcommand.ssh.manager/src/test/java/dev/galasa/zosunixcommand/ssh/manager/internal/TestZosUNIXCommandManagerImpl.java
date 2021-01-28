@@ -12,9 +12,7 @@ import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -26,15 +24,16 @@ import dev.galasa.ManagerException;
 import dev.galasa.framework.spi.ConfigurationPropertyStoreException;
 import dev.galasa.framework.spi.IFramework;
 import dev.galasa.framework.spi.IManager;
+import dev.galasa.framework.spi.language.GalasaTest;
 import dev.galasa.ipnetwork.ICommandShell;
 import dev.galasa.ipnetwork.IIpHost;
 import dev.galasa.ipnetwork.internal.IpNetworkManagerImpl;
 import dev.galasa.zos.IZosImage;
 import dev.galasa.zos.internal.ZosManagerImpl;
-import dev.galasa.zosunixcommand.ssh.manager.internal.properties.ZosUNIXCommandSshPropertiesSingleton;
 import dev.galasa.zosunixcommand.IZosUNIXCommand;
 import dev.galasa.zosunixcommand.ZosUNIXCommandException;
 import dev.galasa.zosunixcommand.ZosUNIXCommandManagerException;
+import dev.galasa.zosunixcommand.ssh.manager.internal.properties.ZosUNIXCommandSshPropertiesSingleton;
 
 @RunWith(PowerMockRunner.class)
 public class TestZosUNIXCommandManagerImpl {
@@ -70,14 +69,9 @@ public class TestZosUNIXCommandManagerImpl {
     @Mock
     private ICommandShell commandShellMock;
 
-    @Rule
-    public ExpectedException exceptionRule = ExpectedException.none();
-
     @Before
-    public void setup() throws Exception {        
-        ZosUNIXCommandManagerImpl.setZosManager(zosManagerMock);
+    public void setup() throws Exception {
         Mockito.when(zosManagerMock.getImageForTag(Mockito.any())).thenReturn(zosImageMock);
-        ZosUNIXCommandManagerImpl.setIpNetworkManager(ipNetworkManagerMock);
         zosUnixCommandSshPropertiesSingleton = new ZosUNIXCommandSshPropertiesSingleton();
         zosUnixCommandSshPropertiesSingleton.activate();
         
@@ -85,7 +79,10 @@ public class TestZosUNIXCommandManagerImpl {
         Mockito.when(zosImageMock.getIpHost()).thenReturn(ipHostMock);
         
         zosUnixCommandManager = new ZosUNIXCommandManagerImpl();
-        zosUnixCommandManagerSpy = Mockito.spy(zosUnixCommandManager);
+        zosUnixCommandManagerSpy = Mockito.spy(zosUnixCommandManager);        
+        zosUnixCommandManagerSpy.setZosManager(zosManagerMock);
+        zosUnixCommandManagerSpy.setIpNetworkManager(ipNetworkManagerMock);
+        
         Mockito.when(zosUnixCommandManagerSpy.getFramework()).thenReturn(frameworkMock);
         
         Mockito.when(ipNetworkManagerMock.getCommandShell(Mockito.any(), Mockito.any())).thenReturn(commandShellMock);
@@ -98,23 +95,25 @@ public class TestZosUNIXCommandManagerImpl {
     @Test
     public void testInitialise() throws ManagerException {
         allManagers.add(managerMock);
-        zosUnixCommandManager.initialise(frameworkMock, allManagers, activeManagers, TestZosUNIXCommandManagerImpl.class);
+        zosUnixCommandManager.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(TestZosUNIXCommandManagerImpl.class));
         Assert.assertEquals("Error in initialise() method", zosUnixCommandManagerSpy.getFramework(), frameworkMock);
     }
     
     @Test
     public void testInitialise1() throws ManagerException {
         Mockito.doNothing().when(zosUnixCommandManagerSpy).youAreRequired(Mockito.any(), Mockito.any());
-        zosUnixCommandManagerSpy.initialise(frameworkMock, allManagers, activeManagers, DummyTestClass.class);
+        zosUnixCommandManagerSpy.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(DummyTestClass.class));
         Assert.assertEquals("Error in initialise() method", zosUnixCommandManagerSpy.getFramework(), frameworkMock);
     }
 
     @Test
     public void testInitialiseException() throws ConfigurationPropertyStoreException, ManagerException {
         Mockito.when(frameworkMock.getConfigurationPropertyService(Mockito.any())).thenThrow(new ConfigurationPropertyStoreException("exception"));
-        exceptionRule.expect(ZosUNIXCommandManagerException.class);
-        exceptionRule.expectMessage("Unable to request framework services");
-        zosUnixCommandManagerSpy.initialise(frameworkMock, allManagers, activeManagers, DummyTestClass.class);
+        String expectedMessage = "Unable to request framework services";
+        ZosUNIXCommandManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosUNIXCommandManagerException.class, ()->{
+        	zosUnixCommandManagerSpy.initialise(frameworkMock, allManagers, activeManagers, new GalasaTest(DummyTestClass.class));
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
@@ -138,24 +137,28 @@ public class TestZosUNIXCommandManagerImpl {
     
     @Test
     public void testYouAreRequiredException1() throws ManagerException {
-        exceptionRule.expect(ManagerException.class);
-        exceptionRule.expectMessage("The zOS Manager is not available");
-        zosUnixCommandManagerSpy.youAreRequired(allManagers, activeManagers);
+        String expectedMessage = "The zOS Manager is not available";
+        ManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ManagerException.class, ()->{
+        	zosUnixCommandManagerSpy.youAreRequired(allManagers, activeManagers);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testYouAreRequiredException2() throws ManagerException {
         allManagers.add(zosManagerMock);
-        exceptionRule.expect(ManagerException.class);
-        exceptionRule.expectMessage("The IP Network Manager is not available");
-        zosUnixCommandManagerSpy.youAreRequired(allManagers, activeManagers);
+        String expectedMessage = "The IP Network Manager is not available";
+        ManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ManagerException.class, ()->{
+        	zosUnixCommandManagerSpy.youAreRequired(allManagers, activeManagers);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testAreYouProvisionalDependentOn() {
-        Assert.assertTrue("Should be dependent on IZosManagerSpi" , zosUnixCommandManager.areYouProvisionalDependentOn(zosManagerMock));
-        Assert.assertTrue("Should be dependent on IIpNetworkManagerSpi" , zosUnixCommandManager.areYouProvisionalDependentOn(ipNetworkManagerMock));
-        Assert.assertFalse("Should not be dependent on IManager" , zosUnixCommandManager.areYouProvisionalDependentOn(managerMock));
+        Assert.assertTrue("Should be dependent on IZosManagerSpi" , zosUnixCommandManagerSpy.areYouProvisionalDependentOn(zosManagerMock));
+        Assert.assertTrue("Should be dependent on IIpNetworkManagerSpi" , zosUnixCommandManagerSpy.areYouProvisionalDependentOn(ipNetworkManagerMock));
+        Assert.assertFalse("Should not be dependent on IManager" , zosUnixCommandManagerSpy.areYouProvisionalDependentOn(managerMock));
     }
     
     @Test
@@ -164,12 +167,12 @@ public class TestZosUNIXCommandManagerImpl {
         Annotation annotation = DummyTestClass.class.getAnnotation(dev.galasa.zosunixcommand.ZosUNIXCommand.class);
         annotations.add(annotation);
         
-        Object zosUNIXImplObject = zosUnixCommandManager.generateZosUNIXCommand(DummyTestClass.class.getDeclaredField("zosUnixCommand"), annotations);
+        Object zosUNIXImplObject = zosUnixCommandManagerSpy.generateZosUNIXCommand(DummyTestClass.class.getDeclaredField("zosUnixCommand"), annotations);
         Assert.assertTrue("Error in generateZosUNIX() method", zosUNIXImplObject instanceof ZosUNIXCommandImpl);
         
         HashMap<String, ZosUNIXCommandImpl> taggedZosUNIXCommands = new HashMap<>();
         ZosUNIXCommandImpl zosUNIXCommandImpl = Mockito.mock(ZosUNIXCommandImpl.class);
-        taggedZosUNIXCommands.put("tag", zosUNIXCommandImpl);
+        taggedZosUNIXCommands.put("TAG", zosUNIXCommandImpl);
         Whitebox.setInternalState(zosUnixCommandManagerSpy, "taggedZosUNIXCommands", taggedZosUNIXCommands);
         
         zosUNIXImplObject = zosUnixCommandManagerSpy.generateZosUNIXCommand(DummyTestClass.class.getDeclaredField("zosUnixCommand"), annotations);
@@ -185,7 +188,7 @@ public class TestZosUNIXCommandManagerImpl {
     }
     
     class DummyTestClass {
-        @dev.galasa.zosunixcommand.ZosUNIXCommand(imageTag="tag")
+        @dev.galasa.zosunixcommand.ZosUNIXCommand(imageTag="TAG")
         public dev.galasa.zosunixcommand.IZosUNIXCommand zosUnixCommand;
         @dev.galasa.Test
         public void dummyTestMethod() throws ZosUNIXCommandException {

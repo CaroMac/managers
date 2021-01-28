@@ -15,10 +15,11 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.reflect.Whitebox;
 
-import dev.galasa.cicsts.ceci.CECIException;
-import dev.galasa.cicsts.ceci.ICECIResponse;
+import dev.galasa.cicsts.CeciException;
+import dev.galasa.cicsts.ICeciResponse;
+import dev.galasa.cicsts.ICicsRegion;
+import dev.galasa.cicsts.ICicsTerminal;
 import dev.galasa.zos3270.FieldNotFoundException;
-import dev.galasa.zos3270.ITerminal;
 import dev.galasa.zos3270.KeyboardLockedException;
 import dev.galasa.zos3270.TerminalInterruptedException;
 import dev.galasa.zos3270.TimeoutException;
@@ -46,17 +47,20 @@ public class TestCECIImpl {
     private static final String SPACES = "        ";
     
     @Mock
-    private ITerminal ceciTerminalMock;
+    private ICicsTerminal ceciTerminalMock;
     
     @Mock
-    private ICECIResponse ceciResponseMock;
+    private ICicsRegion  cicsRegionMock;
+    
+    @Mock
+    private ICeciResponse ceciResponseMock;
 
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
     @Before
     public void setup() throws FieldNotFoundException, KeyboardLockedException, NetworkException, TerminalInterruptedException, TimeoutException {
-        ceci = new CECIImpl();
+        ceci = new CECIImpl(null, cicsRegionMock);
         ceciSpy = Mockito.spy(ceci);
 
         // Mock all terminal function
@@ -69,8 +73,13 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.pf10()).thenReturn(ceciTerminalMock);
         Mockito.when(ceciTerminalMock.pf11()).thenReturn(ceciTerminalMock);
         Mockito.when(ceciTerminalMock.tab()).thenReturn(ceciTerminalMock);
+        Mockito.when(ceciTerminalMock.home()).thenReturn(ceciTerminalMock);
+        Mockito.when(ceciTerminalMock.newLine()).thenReturn(ceciTerminalMock);
+        Mockito.when(ceciTerminalMock.cursorLeft()).thenReturn(ceciTerminalMock);
+        Mockito.when(ceciTerminalMock.eraseEof()).thenReturn(ceciTerminalMock);
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenReturn(ceciTerminalMock);
         Mockito.when(ceciTerminalMock.reportScreenWithCursor()).thenReturn(ceciTerminalMock);
+        Mockito.when(ceciTerminalMock.getCicsRegion()).thenReturn(cicsRegionMock);
     }
     
     @Test
@@ -92,7 +101,7 @@ public class TestCECIImpl {
         setupTestIssueCommand();
         
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(MESSAGE_DFHAC2206);        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Command abended - see previous screen");
         ceciSpy.issueCommand(ceciTerminalMock, COMMAND_VALUE);        
     }
@@ -102,7 +111,7 @@ public class TestCECIImpl {
         setupTestIssueCommand();
         
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn("USER SCREEN").thenReturn("USER SCREEN").thenReturn("USER SCREEN");        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Command failed - see previous screen");
         ceciSpy.issueCommand(ceciTerminalMock, COMMAND_VALUE);
         
@@ -113,7 +122,7 @@ public class TestCECIImpl {
         setupTestIssueCommand();
         
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Error issuing CECI command");
         ceciSpy.issueCommand(ceciTerminalMock, COMMAND_VALUE);
         
@@ -124,7 +133,7 @@ public class TestCECIImpl {
         setupTestIssueCommand();
         
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Error issuing CECI command");
         ceciSpy.issueCommand(ceciTerminalMock, COMMAND_VALUE);
         
@@ -255,7 +264,7 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(String.format(" %-10s   %+06d   %s", TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.length(), TEXT_VARIABLE_VALUE));
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "XXXX"))
                                                               .thenReturn("PF");
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to find variable to delete");
         ceciSpy.deleteVariable(ceciTerminalMock, TEXT_VARIABLE_NAME);
     }
@@ -267,7 +276,7 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(String.format(" %-10s   %+06d   %s", TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.length(), TEXT_VARIABLE_VALUE));
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "XXXX"))
                                                               .thenReturn(String.format("%-10s", TEXT_VARIABLE_NAME));
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Delete variable failed");
         ceciSpy.deleteVariable(ceciTerminalMock, TEXT_VARIABLE_NAME);
     }
@@ -279,7 +288,7 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(String.format(" %-10s   %+06d   %s", TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.length(), TEXT_VARIABLE_VALUE));
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", TEXT_VARIABLE_NAME));
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to delete variable");
         ceciSpy.deleteVariable(ceciTerminalMock, TEXT_VARIABLE_NAME);
     }
@@ -291,7 +300,7 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(String.format(" %-10s   %+06d   %s", TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.length(), TEXT_VARIABLE_VALUE));
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", TEXT_VARIABLE_NAME));
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to delete variable");
         ceciSpy.deleteVariable(ceciTerminalMock, TEXT_VARIABLE_NAME);
     }
@@ -316,7 +325,7 @@ public class TestCECIImpl {
         
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to delete all variables");
         ceciSpy.deleteAllVariables(ceciTerminalMock);
     }
@@ -327,7 +336,7 @@ public class TestCECIImpl {
         
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to delete all variables");
         ceciSpy.deleteAllVariables(ceciTerminalMock);
     }
@@ -335,8 +344,7 @@ public class TestCECIImpl {
     private void setupTestDeleteVariable() throws Exception {
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "hexOff");
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "variableScreen");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "eof");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
     }
 
     @Test
@@ -351,7 +359,7 @@ public class TestCECIImpl {
         setupTestGetEIB();
         
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to EIB screen");        
         ceciSpy.getEIB(ceciTerminalMock);
     }
@@ -361,7 +369,7 @@ public class TestCECIImpl {
         setupTestGetEIB();
         
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to EIB screen");        
         ceciSpy.getEIB(ceciTerminalMock);
     }
@@ -438,6 +446,10 @@ public class TestCECIImpl {
         setupTestInitialScreen();
         
         PowerMockito.doReturn(true).when(ceciSpy, "isCECIScreen");
+        PowerMockito.doReturn(false).when(ceciSpy, "isHelpScreen", Mockito.any());
+        Assert.assertEquals("Error in initialScreen() method", ceciTerminalMock, ceciSpy.initialScreen());
+
+        PowerMockito.doReturn(true).when(ceciSpy, "isHelpScreen", Mockito.any());
         Assert.assertEquals("Error in initialScreen() method", ceciTerminalMock, ceciSpy.initialScreen());
 
         PowerMockito.when(ceciSpy, "isCECIScreen").thenReturn(false).thenReturn(true);
@@ -449,7 +461,7 @@ public class TestCECIImpl {
         setupTestInitialScreen();
 
         PowerMockito.doReturn(false).when(ceciSpy, "isCECIScreen");       
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Cannot identify terminal as CECI session");
         ceciSpy.initialScreen();
     }
@@ -460,7 +472,7 @@ public class TestCECIImpl {
 
         PowerMockito.doReturn(false).when(ceciSpy, "isCECIScreen");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to CECI initial screen");
         ceciSpy.initialScreen();
     }
@@ -471,15 +483,13 @@ public class TestCECIImpl {
 
         PowerMockito.doReturn(false).when(ceciSpy, "isCECIScreen");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to CECI initial screen");
         ceciSpy.initialScreen();
     }
     
     private void setupTestInitialScreen() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "home");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "eof");
     }
 
     @Test
@@ -492,7 +502,7 @@ public class TestCECIImpl {
     public void testVariableScreenException1() throws Exception {
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "initialScreen");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to CECI variables screen");
         ceciSpy.variableScreen();
     }
@@ -501,7 +511,7 @@ public class TestCECIImpl {
     public void testVariableScreenException2() throws Exception {
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "initialScreen");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to navigate to CECI variables screen");
         ceciSpy.variableScreen();
     }
@@ -594,68 +604,10 @@ public class TestCECIImpl {
     }
 
     @Test
-    public void testHome() throws Exception {
-        Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(SPACES);
-        Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(SPACES).thenReturn("PF");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
-        PowerMockito.doReturn(true).when(ceciSpy, "isHelpScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isHelpScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isInitialScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isInitialScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isVariablesScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isVariablesScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isCommandBeforeScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isCommandBeforeScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isCommandAfterScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isCommandAfterScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isMsgScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isMsgScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isEibScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-        
-        PowerMockito.doReturn(false).when(ceciSpy, "isEibScreen", Mockito.any());
-        PowerMockito.doReturn(true).when(ceciSpy, "isVariablesExpansionScreen", Mockito.any());
-        Assert.assertEquals("Error in home() method", ceciTerminalMock, ceciSpy.home());
-    }
-
-    @Test
-    public void testHomeException() throws Exception {
-        Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(SPACES);
-        Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(SPACES);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());       
-        exceptionRule.expect(CECIException.class);
-        exceptionRule.expectMessage("Unable to tab to CEIC command line");
-        
-        ceciSpy.home();
-    }
-
-    @Test
-    public void testEof() throws Exception {
-        Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(SPACES).thenReturn(TEXT_VARIABLE_NAME);
-        
-        Assert.assertEquals("Error in eof() method", ceciTerminalMock, ceciSpy.eof());
-    }
-
-    @Test
-    public void testTab() throws Exception {
+    public void testMultipleTab() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         
-        Assert.assertEquals("Error in tab() method", ceciTerminalMock, ceciSpy.tab(1));
+        Assert.assertEquals("Error in multipleTab() method", ceciTerminalMock, ceciSpy.multipleTab(1));
     }
 
     @Test
@@ -672,7 +624,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Whitebox.setInternalState(ceciSpy, "command", COMMAND_VALUE);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(SPACES);       
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Command failed syntax check. \nCommand:\n  " + COMMAND_VALUE + "\nSyntax Error Screen:\n" + SPACES);
         
         ceciSpy.checkForSyntaxMessages();
@@ -683,7 +635,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(NO_SYNTAX_MESSAGES);        
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to check for syntax messages");
         
         ceciSpy.checkForSyntaxMessages();
@@ -694,7 +646,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(NO_SYNTAX_MESSAGES);        
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());        
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to check for syntax messages");
         
         ceciSpy.checkForSyntaxMessages();
@@ -720,7 +672,7 @@ public class TestCECIImpl {
     @Test
     public void testValidateVariableException1() throws Exception {
         String name = "&2345678901";
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("CECI variable name \"" + name + "\" greater than maximum length of 10 characters including the leading \"&\"");
         
         ceciSpy.validateVariable(name, TEXT_VARIABLE_VALUE.toCharArray(), null);
@@ -729,7 +681,7 @@ public class TestCECIImpl {
     @Test
     public void testValidateVariableException2() throws Exception {
         String name = "&?";
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("CECI variable name \"" + name + "\" invalid must. Must start with \"&\" and can contain one of more [a-zA-Z0-9@#]");
         
         ceciSpy.validateVariable(name, TEXT_VARIABLE_VALUE.toCharArray(), null);
@@ -740,7 +692,7 @@ public class TestCECIImpl {
         String value = "123456789";
         String type = "H";
         int maxLength = 6;
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("CECI variable value length " + value.length() + " greater than maximum of " + maxLength +  " for type \"" + type + "\"" );
         
         ceciSpy.validateVariable(TEXT_VARIABLE_NAME, value.toCharArray(), type);
@@ -749,7 +701,7 @@ public class TestCECIImpl {
     @Test
     public void testValidateVariableException4() throws Exception {        
         String value = new String(new char[32768]).replace("\0", "X");
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("CECI variable value length " + value.length() + " greater than maximum 32767");
         ceciSpy.validateVariable(TEXT_VARIABLE_NAME, value.toCharArray(), null);
     }
@@ -759,8 +711,9 @@ public class TestCECIImpl {
         setupTestVariable();
         PowerMockito.doReturn(TEXT_VARIABLE_VALUE.length()).when(ceciSpy, "setVariableOnPage", Mockito.any(), Mockito.anyInt(), Mockito.anyInt());
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "X")).thenReturn(String.format("%-10s", " "));
-        
         Assert.assertEquals("Error in setVariable() method", TEXT_VARIABLE_VALUE.length(), ceciSpy.setVariable(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE, null));
+        
+        Assert.assertEquals("Error in setVariable() method", TEXT_VARIABLE_VALUE.length(), ceciSpy.setVariable(TEXT_VARIABLE_NAME + "X", TEXT_VARIABLE_VALUE, null));
         
         Assert.assertEquals("Error in setVariable() method", TEXT_VARIABLE_VALUE.length(), ceciSpy.setVariable(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE, "H"));
         
@@ -773,7 +726,7 @@ public class TestCECIImpl {
     public void testSetVariableException1() throws Exception {
         setupTestVariable();
         PowerMockito.doReturn("PF").when(ceciTerminalMock, "retrieveFieldAtCursor");
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("No space on CECI variable screen for new variables");
         
         ceciSpy.setVariable(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE, null);
@@ -784,7 +737,7 @@ public class TestCECIImpl {
         setupTestVariable();
         PowerMockito.doReturn(String.format("%-10s", " ")).when(ceciTerminalMock, "retrieveFieldAtCursor");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI variable");
         
         ceciSpy.setVariable(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE, null);
@@ -795,7 +748,7 @@ public class TestCECIImpl {
         setupTestVariable();
         PowerMockito.doReturn(String.format("%-10s", " ")).when(ceciTerminalMock, "retrieveFieldAtCursor");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI variable");
         
         ceciSpy.setVariable(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE, null);
@@ -806,9 +759,8 @@ public class TestCECIImpl {
         PowerMockito.doNothing().when(ceciSpy, "deleteVariable", Mockito.any(), Mockito.any());
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "hexOff");
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "variableScreen");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tabToVariable", Mockito.any());
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "home");
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "moveToVariable", Mockito.any());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
     }
 
     @Test
@@ -822,13 +774,16 @@ public class TestCECIImpl {
         
         numberOfLines = 2;
         Assert.assertEquals("Error in setVariableOnPage() method", numberOfLines, ceciSpy.setVariableOnPage(chunks, start, numberOfLines));
+        
+        chunks = new String[] {String.format("%-65s", "X"), TEXT_VARIABLE_VALUE};
+        Assert.assertEquals("Error in setVariableOnPage() method", numberOfLines, ceciSpy.setVariableOnPage(chunks, start, numberOfLines));
     }
 
     @Test
     public void testSetVariableOnPageException() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.type(Mockito.any())).thenThrow(new FieldNotFoundException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable enter variable data");
         
         String[] chunks = new String[] {TEXT_VARIABLE_VALUE, TEXT_VARIABLE_VALUE};
@@ -841,9 +796,10 @@ public class TestCECIImpl {
     public void testSetVariableHex() throws Exception {
         setupTestVariable();
         PowerMockito.doReturn(TEXT_VARIABLE_VALUE.length()).when(ceciSpy, "setVariableHexOnPage", Mockito.any(), Mockito.anyInt(), Mockito.anyInt());
-        Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "X")).thenReturn(String.format("%-10s", " "));
-        
+        Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "X")).thenReturn(String.format("%-10s", " "));        
         Assert.assertEquals("Error in setVariableHex() method", TEXT_VARIABLE_VALUE.length(), ceciSpy.setVariableHex(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.toCharArray()));
+        
+        Assert.assertEquals("Error in setVariableHex() method", TEXT_VARIABLE_VALUE.length(), ceciSpy.setVariableHex(TEXT_VARIABLE_NAME + "X", TEXT_VARIABLE_VALUE.toCharArray()));
         
         int length = 21;
         char[] value = new String(new char[length]).replace("\0", "X").toCharArray();
@@ -855,7 +811,7 @@ public class TestCECIImpl {
     public void testSetVariableHexException1() throws Exception {
         setupTestVariable();
         PowerMockito.doReturn("PF").when(ceciTerminalMock, "retrieveFieldAtCursor");
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("No space on CECI variable screen for new variables");
         
         ceciSpy.setVariableHex(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.toCharArray());
@@ -866,7 +822,7 @@ public class TestCECIImpl {
         setupTestVariable();
         PowerMockito.doReturn(String.format("%-10s", " ")).when(ceciTerminalMock, "retrieveFieldAtCursor");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI binary variable");
         
         ceciSpy.setVariableHex(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.toCharArray());
@@ -877,7 +833,7 @@ public class TestCECIImpl {
         setupTestVariable();
         PowerMockito.doReturn(String.format("%-10s", " ")).when(ceciTerminalMock, "retrieveFieldAtCursor");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI binary variable");
         
         ceciSpy.setVariableHex(TEXT_VARIABLE_NAME, TEXT_VARIABLE_VALUE.toCharArray());
@@ -894,7 +850,10 @@ public class TestCECIImpl {
         
         value = new String(new char[32]).replace("\0", "X").toCharArray();
         numberOfLines = 2;
-        Assert.assertEquals("Error in setVariableHexOnPage() method", value.length, ceciSpy.setVariableHexOnPage(value, start, numberOfLines));        
+        Assert.assertEquals("Error in setVariableHexOnPage() method", value.length, ceciSpy.setVariableHexOnPage(value, start, numberOfLines));
+        
+        numberOfLines = -1;
+        Assert.assertEquals("Error in setVariableHexOnPage() method", 0, ceciSpy.setVariableHexOnPage(value, start, numberOfLines));
         
         value = new char[0];
         numberOfLines = -1;
@@ -905,7 +864,7 @@ public class TestCECIImpl {
     public void testSetVariableHexOnPageException() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.type(Mockito.any())).thenThrow(new FieldNotFoundException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable enter variable data");
         
         char[] value = TEXT_VARIABLE_VALUE.toCharArray();
@@ -936,7 +895,7 @@ public class TestCECIImpl {
         setupTestGetVariable();
         String lengthString = "XXXX";
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(lengthString);    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unexpected variable type \"" + lengthString  + "\" for \"" + TEXT_VARIABLE_NAME + "\"");
         String type = "H";
         
@@ -948,7 +907,7 @@ public class TestCECIImpl {
         setupTestGetVariable();
         String lengthString = "XXXX";
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(lengthString);   
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to determine variable field length");
         
         ceciSpy.getVariable(TEXT_VARIABLE_NAME, null);
@@ -958,7 +917,7 @@ public class TestCECIImpl {
     public void testGetVariableException3() throws Exception {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get CECI variable");
         
         ceciSpy.getVariable(TEXT_VARIABLE_NAME, null);
@@ -968,7 +927,7 @@ public class TestCECIImpl {
     public void testGetVariableException4() throws Exception {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException());    
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get CECI variable");
         
         ceciSpy.getVariable(TEXT_VARIABLE_NAME, null);
@@ -976,9 +935,8 @@ public class TestCECIImpl {
 
     private void setupTestGetVariable() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tabToVariable", Mockito.any());
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "home");
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "moveToVariable", Mockito.any());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
     }
     
     @Test
@@ -997,7 +955,7 @@ public class TestCECIImpl {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(TEXT_VARIABLE_VALUE);
         Mockito.when(ceciTerminalMock.tab()).thenThrow(new FieldNotFoundException());   
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get variable from page");
         
         ceciSpy.getVariableFromPage(1, 1);
@@ -1020,7 +978,7 @@ public class TestCECIImpl {
     public void testGetVariableHexException1() throws Exception {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("XXXX");   
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to determine variable field length");
         
         ceciSpy.getVariableHex(TEXT_VARIABLE_VALUE);
@@ -1030,7 +988,7 @@ public class TestCECIImpl {
     public void testGetVariableHexException2() throws Exception {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get CECI binary variable");
         
         ceciSpy.getVariableHex(TEXT_VARIABLE_VALUE);
@@ -1040,7 +998,7 @@ public class TestCECIImpl {
     public void testGetVariableHexException3() throws Exception {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get CECI binary variable");
         
         ceciSpy.getVariableHex(TEXT_VARIABLE_VALUE);
@@ -1061,63 +1019,62 @@ public class TestCECIImpl {
         setupTestGetVariable();
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("5A5A5A5A");
         Mockito.when(ceciTerminalMock.tab()).thenThrow(new FieldNotFoundException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to get binary variable from page");
         
         ceciSpy.getVariableHexFromPage(4, 1);
     }
     
     @Test
-    public void testTabToVariable() throws Exception {
-        setupTestTabToVariable();
+    public void testMoveToVariable() throws Exception {
+        setupMoveToVariable();
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(TEXT_VARIABLE_NAME + " "); 
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn(String.format("%-10s", "X")).thenReturn(String.format("%-10s", TEXT_VARIABLE_NAME));
 
-        Assert.assertEquals("Error in tabToVariable() method", ceciTerminalMock, ceciSpy.tabToVariable(TEXT_VARIABLE_NAME));
+        Assert.assertEquals("Error in moveToVariable() method", ceciTerminalMock, ceciSpy.moveToVariable(TEXT_VARIABLE_NAME));
     }
     
     @Test
-    public void testTabToVariableException1() throws Exception {
-        setupTestTabToVariable();
+    public void testMoveToVariableException1() throws Exception {
+        setupMoveToVariable();
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(" "); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to find variable " + TEXT_VARIABLE_NAME);
     
-        ceciSpy.tabToVariable(TEXT_VARIABLE_NAME);
+        ceciSpy.moveToVariable(TEXT_VARIABLE_NAME);
     }
     
     @Test
-    public void testTabToVariableException2() throws Exception {
-        setupTestTabToVariable();
+    public void testMoveToVariableException2() throws Exception {
+        setupMoveToVariable();
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(TEXT_VARIABLE_NAME + " "); 
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("PF");
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to find variable " + TEXT_VARIABLE_NAME);
     
-        ceciSpy.tabToVariable(TEXT_VARIABLE_NAME);
+        ceciSpy.moveToVariable(TEXT_VARIABLE_NAME);
     }
     
     @Test
-    public void testTabToVariableException3() throws Exception {
-        setupTestTabToVariable();
+    public void testMoveToVariableException3() throws Exception {
+        setupMoveToVariable();
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(TEXT_VARIABLE_NAME + " ");
-        Mockito.when(ceciTerminalMock.tab()).thenThrow(new FieldNotFoundException());  
-        exceptionRule.expect(CECIException.class);
+        Mockito.when(ceciTerminalMock.newLine()).thenThrow(new FieldNotFoundException());  
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Problem serching for variable " + TEXT_VARIABLE_NAME);
     
-        ceciSpy.tabToVariable(TEXT_VARIABLE_NAME);
+        ceciSpy.moveToVariable(TEXT_VARIABLE_NAME);
     }
 
-    private void setupTestTabToVariable() throws Exception {
+    private void setupMoveToVariable() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "hexOff");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "home");
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
         PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "variableScreen");        
     }
     
     @Test
-    public void testIsHexOn() throws CECIException {
+    public void testIsHexOn() throws CeciException {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(" EIBTIME      = X'00");
         
@@ -1125,22 +1082,22 @@ public class TestCECIImpl {
     }
     
     @Test
-    public void testIsHexOnException1() throws CECIException, TimeoutException, KeyboardLockedException, TerminalInterruptedException {
+    public void testIsHexOnException1() throws CeciException, TimeoutException, KeyboardLockedException, TerminalInterruptedException {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(" EIBTIME      = X'00");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to determine if CECI is in HEX mode");
         
         ceciSpy.isHexOn();        
     }
     
     @Test
-    public void testIsHexOnException2() throws CECIException, TimeoutException, KeyboardLockedException, TerminalInterruptedException {
+    public void testIsHexOnException2() throws CeciException, TimeoutException, KeyboardLockedException, TerminalInterruptedException {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn(" EIBTIME      = X'00");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to determine if CECI is in HEX mode");
         
         ceciSpy.isHexOn();          
@@ -1162,7 +1119,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         PowerMockito.doReturn(false).when(ceciSpy, "isHexOn");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI HEX ON");
         
         ceciSpy.hexOn();        
@@ -1173,7 +1130,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         PowerMockito.doReturn(false).when(ceciSpy, "isHexOn");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI HEX ON");
         
         ceciSpy.hexOn();          
@@ -1195,7 +1152,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         PowerMockito.doReturn(true).when(ceciSpy, "isHexOn");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI HEX OFF");
         
         ceciSpy.hexOff();        
@@ -1206,7 +1163,7 @@ public class TestCECIImpl {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
         PowerMockito.doReturn(true).when(ceciSpy, "isHexOn");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to set CECI HEX OFF");
         
         ceciSpy.hexOff();          
@@ -1218,7 +1175,7 @@ public class TestCECIImpl {
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn("   RESPONSE: FILENOTFOUND          EIBRESP=+0000000012 EIBRESP2=+0000000001     ");
         PowerMockito.doReturn(new LinkedHashMap<>()).when(ceciSpy, "parseResponseOutput");
         
-        ICECIResponse ceciResponse = ceciSpy.newCECIResponse(false);
+        ICeciResponse ceciResponse = ceciSpy.newCECIResponse(false);
         
         ceciSpy.newCECIResponse(true);
         Assert.assertEquals("Error in newCECIResponse() method", "FILENOTFOUND", ceciResponse.getResponse());
@@ -1229,7 +1186,7 @@ public class TestCECIImpl {
     @Test
     public void testParseResponseOutput() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("OPTION1").thenReturn("OPTION2");
         Mockito.when(ceciTerminalMock.retrieveScreen()).thenReturn("OPTION= OPTION1      LENGTH= +00008 ").thenReturn("OPTION= OPTION2      LENGTH= +00008 ");
         PowerMockito.doReturn(new ResponseOutputValueImpl("XXXXXXXX")).when(ceciSpy, "getOptionValue", Mockito.any());
@@ -1244,10 +1201,10 @@ public class TestCECIImpl {
     @Test
     public void testParseResponseOutputException1() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("OPTION1");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output");
         
         ceciSpy.parseResponseOutput();
@@ -1256,10 +1213,10 @@ public class TestCECIImpl {
     @Test
     public void testParseResponseOutputException2() throws Exception {
         Whitebox.setInternalState(ceciSpy, "terminal", ceciTerminalMock);
-        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "tab", Mockito.anyInt());
+        PowerMockito.doReturn(ceciTerminalMock).when(ceciSpy, "multipleTab", Mockito.anyInt());
         Mockito.when(ceciTerminalMock.retrieveFieldAtCursor()).thenReturn("OPTION1");
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output");
         
         ceciSpy.parseResponseOutput();
@@ -1288,7 +1245,7 @@ public class TestCECIImpl {
         PowerMockito.doReturn("000").when(ceciSpy, "getVariableFromPage", Mockito.anyInt(), Mockito.anyInt());        
         String screen = "OPTION= LENGTH       LENGTH= H ";
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output option value");
 
         ceciSpy.getOptionValue(screen);
@@ -1300,7 +1257,7 @@ public class TestCECIImpl {
         PowerMockito.doReturn("000").when(ceciSpy, "getVariableFromPage", Mockito.anyInt(), Mockito.anyInt());        
         String screen = "OPTION= LENGTH       LENGTH= H ";
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output option value");
 
         ceciSpy.getOptionValue(screen);
@@ -1326,7 +1283,7 @@ public class TestCECIImpl {
         setupTestGetVariable();
         PowerMockito.doReturn("F1").when(ceciSpy, "getVariableHexFromPage", Mockito.anyInt(), Mockito.anyInt());
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TerminalInterruptedException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output binary option value");
         
         ceciSpy.getOptionValueInHex(1, 0);
@@ -1337,7 +1294,7 @@ public class TestCECIImpl {
         setupTestGetVariable();
         PowerMockito.doReturn("F1").when(ceciSpy, "getVariableHexFromPage", Mockito.anyInt(), Mockito.anyInt());
         Mockito.when(ceciTerminalMock.waitForKeyboard()).thenThrow(new TimeoutException()); 
-        exceptionRule.expect(CECIException.class);
+        exceptionRule.expect(CeciException.class);
         exceptionRule.expectMessage("Unable to parse command output binary option value");
         
         ceciSpy.getOptionValueInHex(1, 0);

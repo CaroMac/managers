@@ -7,9 +7,7 @@ package dev.galasa.zos.internal;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
@@ -25,12 +23,14 @@ import dev.galasa.framework.spi.ConfigurationPropertyStoreException;
 import dev.galasa.framework.spi.IConfigurationPropertyStoreService;
 import dev.galasa.framework.spi.IDynamicStatusStoreService;
 import dev.galasa.framework.spi.IFramework;
+import dev.galasa.framework.spi.cps.CpsProperties;
 import dev.galasa.framework.spi.creds.CredentialsException;
 import dev.galasa.framework.spi.creds.ICredentialsService;
 import dev.galasa.zos.ZosManagerException;
+import dev.galasa.zos.internal.properties.ZosPropertiesSingleton;
 
 @RunWith(PowerMockRunner.class)
-@PrepareForTest({AbstractManager.class, ZosIpHostImpl.class})
+@PrepareForTest({AbstractManager.class, ZosIpHostImpl.class, ZosPropertiesSingleton.class, CpsProperties.class})
 public class TestZosBaseImageImpl {
 
     private ZosBaseImageImpl zosBaseImage;
@@ -52,8 +52,8 @@ public class TestZosBaseImageImpl {
     @Mock
     private ICredentialsService credentialsServiceMock;
     
-    @Rule
-    public ExpectedException exceptionRule = ExpectedException.none();
+    @Mock
+    private IConfigurationPropertyStoreService configurationPropertyStoreServiceMock;
     
     private static final String IMAGE_ID = "image";
 
@@ -74,7 +74,11 @@ public class TestZosBaseImageImpl {
         PowerMockito.when(cpsMock.getProperty(Mockito.anyString(), ArgumentMatchers.contains(DEFAULT_CREDENTIALS_ID), Mockito.anyString())).thenReturn(DEFAULT_CREDENTIALS_ID);
         PowerMockito.when(cpsMock.getProperty(Mockito.anyString(), ArgumentMatchers.contains(IPV4_HOSTNAME))).thenReturn(IPV4_HOSTNAME);
         PowerMockito.when(cpsMock.getProperty(Mockito.anyString(), ArgumentMatchers.contains(IPV6_HOSTNAME))).thenReturn(IPV6_HOSTNAME);
-        
+
+        PowerMockito.spy(ZosPropertiesSingleton.class);
+        PowerMockito.doReturn(configurationPropertyStoreServiceMock).when(ZosPropertiesSingleton.class, "cps");
+        PowerMockito.spy(CpsProperties.class);
+        PowerMockito.doReturn(IMAGE_ID).when(CpsProperties.class, "getStringWithDefault", Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
         
         PowerMockito.when(zosManagerMock.getDSS()).thenReturn(dssMock);
         PowerMockito.when(zosManagerMock.getFramework()).thenReturn(frameworkMock);
@@ -94,17 +98,21 @@ public class TestZosBaseImageImpl {
     @Test
     public void testConstructorException1() throws ZosManagerException, ConfigurationPropertyStoreException {
         PowerMockito.when(cpsMock.getProperty(Mockito.anyString(), ArgumentMatchers.contains(PLEX_ID))).thenThrow(new ConfigurationPropertyStoreException());
-        exceptionRule.expect(ZosManagerException.class);
-        exceptionRule.expectMessage("Problem populating Image " + IMAGE_ID + " properties");
-        zosBaseImage = new ZosBaseImageImplExtended(zosManagerMock, IMAGE_ID, CLUSTER_ID);
+        String expectedMessage = "Problem populating Image " + IMAGE_ID + " properties";
+        ZosManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosManagerException.class, ()->{
+        	zosBaseImage = new ZosBaseImageImplExtended(zosManagerMock, IMAGE_ID, CLUSTER_ID);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testConstructorException2() throws ZosManagerException, ConfigurationPropertyStoreException {
         PowerMockito.when(cpsMock.getProperty(Mockito.anyString(), ArgumentMatchers.contains(IPV4_HOSTNAME))).thenThrow(new ConfigurationPropertyStoreException());
-        exceptionRule.expect(ZosManagerException.class);
-        exceptionRule.expectMessage("Unable to create the IP Host for the image " + IMAGE_ID);
-        zosBaseImage = new ZosBaseImageImplExtended(zosManagerMock, IMAGE_ID, CLUSTER_ID);
+        String expectedMessage = "Unable to create the IP Host for the image " + IMAGE_ID;
+        ZosManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosManagerException.class, ()->{
+        	zosBaseImage = new ZosBaseImageImplExtended(zosManagerMock, IMAGE_ID, CLUSTER_ID);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
@@ -123,8 +131,16 @@ public class TestZosBaseImageImpl {
     }
     
     @Test
+    public void testGetSysname() throws Exception {
+        Assert.assertEquals("getSysname() should return the expected value", IMAGE_ID, zosBaseImageSpy.getSysname());
+    }
+    
+    @Test
     public void testGetSysplexID() throws Exception {
         Assert.assertEquals("getSysplexID() should return the expected value", PLEX_ID, zosBaseImageSpy.getSysplexID());
+        
+        Whitebox.setInternalState(zosBaseImageSpy, "sysplexID", (String) null);
+        Assert.assertEquals("getSysplexID() should return the expected value", IMAGE_ID, zosBaseImageSpy.getSysplexID());
     }
     
     @Test
@@ -159,20 +175,22 @@ public class TestZosBaseImageImpl {
     public void testGetDefaultCredentialsException1() throws Exception {        
         Whitebox.setInternalState(zosBaseImageSpy, "defaultCedentials", (ICredentials) null);
         Mockito.when(frameworkMock.getCredentialsService()).thenThrow(new CredentialsException());
-
-        exceptionRule.expect(ZosManagerException.class);
-        exceptionRule.expectMessage("Unable to acquire the credentials for id " + DEFAULT_CREDENTIALS_ID);
-        zosBaseImageSpy.getDefaultCredentials();      
+        String expectedMessage = "Unable to acquire the credentials for id " + DEFAULT_CREDENTIALS_ID;
+        ZosManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosManagerException.class, ()->{
+        	zosBaseImageSpy.getDefaultCredentials();      
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test
     public void testGetDefaultCredentialsException2() throws Exception {        
         Whitebox.setInternalState(zosBaseImageSpy, "defaultCedentials", (ICredentials) null);
         Mockito.when(credentialsServiceMock.getCredentials(Mockito.anyString())).thenReturn(null);
-
-        exceptionRule.expect(ZosManagerException.class);
-        exceptionRule.expectMessage("zOS Credentials missing for image " + IMAGE_ID + " id " + DEFAULT_CREDENTIALS_ID);
-        zosBaseImageSpy.getDefaultCredentials();      
+        String expectedMessage = "zOS Credentials missing for image " + IMAGE_ID + " id " + DEFAULT_CREDENTIALS_ID;
+        ZosManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosManagerException.class, ()->{
+        	zosBaseImageSpy.getDefaultCredentials();      
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
     
     @Test

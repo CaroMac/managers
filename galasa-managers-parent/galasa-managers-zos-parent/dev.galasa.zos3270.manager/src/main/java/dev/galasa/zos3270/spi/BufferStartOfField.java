@@ -1,7 +1,7 @@
 /*
  * Licensed Materials - Property of IBM
  * 
- * (c) Copyright IBM Corp. 2019.
+ * (c) Copyright IBM Corp. 2019,2020.
  */
 package dev.galasa.zos3270.spi;
 
@@ -72,10 +72,20 @@ public class BufferStartOfField implements IBufferHolder {
     public void setFieldModified() {
         this.fieldModifed = true;
     }
+    
+    public void clearFieldModified() {
+        this.fieldModifed = false;
+    }
 
     @Override
     public String getStringWithoutNulls() {
         return " ";
     }
+    
+    @Override
+    public char getChar() {
+        return ' ';
+    }
+
 
 }

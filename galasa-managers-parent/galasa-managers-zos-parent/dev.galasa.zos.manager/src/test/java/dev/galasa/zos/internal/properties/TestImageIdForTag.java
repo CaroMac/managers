@@ -6,9 +6,7 @@
 package dev.galasa.zos.internal.properties;
 
 import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -28,15 +26,12 @@ public class TestImageIdForTag {
     @Mock
     private IConfigurationPropertyStoreService configurationPropertyStoreServiceMock;
     
-    @Rule
-    public ExpectedException exceptionRule = ExpectedException.none();
-    
     private static final String TAG = "tag";
     
     @Test
     public void testConstructor() {
-        ImageIdForTag iageIdForTag = new ImageIdForTag();
-        Assert.assertNotNull("Object was not created", iageIdForTag);
+        ImageIdForTag imageIdForTag = new ImageIdForTag();
+        Assert.assertNotNull("Object was not created", imageIdForTag);
     }
     
     @Test
@@ -51,10 +46,11 @@ public class TestImageIdForTag {
     
     @Test
     public void testException() throws Exception {
-        exceptionRule.expect(ZosManagerException.class);
-        exceptionRule.expectMessage("Problem asking the CPS for the image id for tag 'ANY'");
-        
-        getProperty("ANY", true);
+        String expectedMessage = "Problem asking the CPS for the image id for tag 'ANY'";
+        ZosManagerException expectedException = Assert.assertThrows("expected exception should be thrown", ZosManagerException.class, ()->{
+        	getProperty("ANY", true);
+        });
+    	Assert.assertEquals("exception should contain expected message", expectedMessage, expectedException.getMessage());
     }
 
     private String getProperty(String value) throws Exception {
